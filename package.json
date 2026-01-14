@@ -1,0 +1,37 @@
+{
+  "name": "cep-crawler-api",
+  "version": "1.0.0",
+  "description": "Crawler assíncrono de CEPs com fila e MongoDB",
+  "main": "dist/api.js",
+  "scripts": {
+    "build": "tsc",
+    "start:api": "node dist/api.js",
+    "start:worker": "node dist/worker.js",
+    "dev:api": "tsx watch src/api.ts",
+    "dev:worker": "tsx watch src/worker.ts"
+  },
+  "keywords": [
+    "cep",
+    "crawler",
+    "viacep",
+    "mongodb",
+    "sqs"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.712.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.9.4",
+    "uuid": "^11.0.4",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.5",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

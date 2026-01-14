@@ -1,0 +1,86 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: cep-crawler-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  elasticmq:
+    image: softwaremill/elasticmq-native:latest
+    container_name: cep-crawler-elasticmq
+    ports:
+      - "9324:9324"
+      - "9325:9325"
+    volumes:
+      - ./elasticmq.conf:/opt/elasticmq.conf
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9324 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cep-crawler-api
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongodb:27017/cep-crawler
+      - SQS_ENDPOINT=http://elasticmq:9324
+      - SQS_REGION=us-east-1
+      - SQS_ACCESS_KEY_ID=x
+      - SQS_SECRET_ACCESS_KEY=x
+      - SQS_QUEUE_URL=http://elasticmq:9324/000000000000/cep-queue
+      - MAX_CEP_RANGE=500
+      - RATE_LIMIT_MS=200
+      - MAX_RETRIES=3
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      elasticmq:
+        condition: service_healthy
+    command: ["node", "dist/api.js"]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cep-crawler-worker
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/cep-crawler
+      - SQS_ENDPOINT=http://elasticmq:9324
+      - SQS_REGION=us-east-1
+      - SQS_ACCESS_KEY_ID=x
+      - SQS_SECRET_ACCESS_KEY=x
+      - SQS_QUEUE_URL=http://elasticmq:9324/000000000000/cep-queue
+      - MAX_CEP_RANGE=500
+      - RATE_LIMIT_MS=200
+      - MAX_RETRIES=3
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      elasticmq:
+        condition: service_healthy
+    command: ["node", "dist/worker.js"]
+    restart: unless-stopped
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+volumes:
+  mongodb_data:
