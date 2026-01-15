@@ -78,9 +78,6 @@ services:
         condition: service_healthy
     command: ["node", "dist/worker.js"]
     restart: unless-stopped
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
 
 volumes:
   mongodb_data:
