@@ -1,147 +1,299 @@
-# teste-tecnico-backend-2025-trimestre-4
-Teste técnico para a posição de Backend Dev. Edição do quarto trimestre de 2025.
+# CEP Crawler API
 
-## A proposta: Crawler assíncrono de CEPs + Fila + MongoDB
+API para crawler assíncrono de CEPs utilizando fila de mensagens e MongoDB.
 
-A ideia é bem simples:
+## Stack Tecnológica
 
-- [ ] uma API que permita solicitar o processamento de um **range de CEPs**
-- [ ] cada CEP do range deve ser processado de forma **assíncrona**
-- [ ] os dados devem ser obtidos a partir da API pública do **ViaCEP**
-- [ ] os resultados e o progresso devem ser persistidos em um banco **MongoDB**
+| Tecnologia | Uso |
+|------------|-----|
+| **Node.js 22** | Runtime |
+| **TypeScript** | Linguagem |
+| **Express** | Framework HTTP |
+| **MongoDB** | Banco de dados |
+| **Mongoose** | ODM |
+| **ElasticMQ** | Fila SQS-compatible |
+| **AWS SDK** | Cliente SQS |
+| **Zod** | Validação de schemas |
+| **Docker** | Containerização |
 
----
+## Arquitetura
 
-## API
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Cliente   │────▶│  API HTTP   │────▶│   MongoDB   │
+└─────────────┘     └──────┬──────┘     └─────────────┘
+                          │                    ▲
+                          ▼                    │
+                   ┌─────────────┐             │
+                   │  ElasticMQ  │             │
+                   │   (Fila)    │             │
+                   └──────┬──────┘             │
+                          │                    │
+                          ▼                    │
+                   ┌─────────────┐             │
+                   │   Worker    │─────────────┘
+                   │             │
+                   │  ┌───────┐  │
+                   │  │ViaCEP │  │
+                   │  │  API  │  │
+                   │  └───────┘  │
+                   └─────────────┘
+```
 
-### Solicitação de crawl
+### Fluxo de Processamento
 
-- [ ] uma rota `POST /cep/crawl` que recebe um range de CEPs no seguinte formato:
+1. Cliente envia `POST /cep/crawl` com range de CEPs
+2. API valida, cria registro no MongoDB e enfileira CEPs
+3. Worker consome fila respeitando rate limit
+4. Para cada CEP, consulta ViaCEP e persiste resultado
+5. Cliente consulta status e resultados via GET
 
+## Estrutura do Projeto
+
+```
+src/
+├── config/           # Configurações (env, database, queue)
+├── models/           # Schemas Mongoose (Crawl, Result)
+├── routes/           # Rotas Express
+├── services/         # Lógica de negócio
+├── validators/       # Schemas Zod
+├── api.ts            # Entry point da API
+└── worker.ts         # Consumidor da fila
+```
+
+## Como Executar
+
+### Pré-requisitos
+
+- Node.js 22+
+- Docker e Docker Compose
+- npm
+
+### Opção 1: Docker Compose (Recomendado)
+
+```bash
+# Subir todos os serviços
+docker compose up -d --build
+
+# Ver logs
+docker compose logs -f
+
+# Parar
+docker compose down
+```
+
+### Opção 2: Desenvolvimento Local
+
+```bash
+# 1. Instalar dependências
+npm install
+
+# 2. Subir MongoDB e ElasticMQ
+docker run -d --name mongodb -p 27017:27017 mongo:7
+docker run -d --name elasticmq -p 9324:9324 -p 9325:9325 \
+  -v "$(pwd)/elasticmq.conf:/opt/elasticmq.conf" \
+  softwaremill/elasticmq-native:latest
+
+# 3. Criar .env
+cp .env.example .env
+
+# 4. Rodar API (Terminal 1)
+npm run dev:api
+
+# 5. Rodar Worker (Terminal 2)
+npm run dev:worker
+```
+
+## Endpoints da API
+
+### Health Check
+
+```http
+GET /health
+```
+
+**Response:**
 ```json
 {
-  "cep_start": "01000000",
-  "cep_end": "01001000"
+  "status": "ok",
+  "timestamp": "2024-01-15T10:30:00.000Z"
 }
 ```
 
-* [ ] validar:
+### Criar Crawl
 
-  * [ ] formato dos CEPs
-  * [ ] `cep_start` menor ou igual a `cep_end`
-  * [ ] tamanho máximo do range (critério livre)
-* [ ] criar um identificador único da requisição (`crawl_id`)
-* [ ] inserir **um item na fila para cada CEP do range**
-* [ ] retornar:
+```http
+POST /cep/crawl
+Content-Type: application/json
 
-  * [ ] código de status `202 Accepted`
-  * [ ] o `crawl_id` gerado
+{
+  "cep_start": "01310100",
+  "cep_end": "01310200"
+}
+```
 
----
+**Response (202 Accepted):**
+```json
+{
+  "message": "Crawl request accepted",
+  "crawl_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
 
-### Consulta de status
+### Consultar Status
 
-* [ ] uma rota `GET /cep/crawl/:crawl_id` que retorna o status do processamento
-* [ ] o status deve conter, no mínimo:
+```http
+GET /cep/crawl/:crawl_id
+```
 
-  * [ ] total de CEPs
-  * [ ] quantidade processada
-  * [ ] quantidade de sucessos
-  * [ ] quantidade de erros
-  * [ ] status geral da requisição (`pending`, `running`, `finished`, `failed`)
-* [ ] retornar:
+**Response (200 OK):**
+```json
+{
+  "crawl_id": "550e8400-e29b-41d4-a716-446655440000",
+  "cep_start": "01310100",
+  "cep_end": "01310200",
+  "total_ceps": 101,
+  "processed": 50,
+  "successes": 48,
+  "error_count": 2,
+  "status": "running",
+  "created_at": "2024-01-15T10:30:00.000Z",
+  "updated_at": "2024-01-15T10:31:00.000Z"
+}
+```
 
-  * [ ] `404` caso o `crawl_id` não exista
-  * [ ] `200` caso exista
+### Consultar Resultados (Paginado)
 
----
+```http
+GET /cep/crawl/:crawl_id/results?page=1&limit=20
+```
 
-### (Opcional) Consulta de resultados
+**Response (200 OK):**
+```json
+{
+  "crawl_id": "550e8400-e29b-41d4-a716-446655440000",
+  "results": [
+    {
+      "cep": "01310100",
+      "success": true,
+      "found": true,
+      "data": {
+        "cep": "01310-100",
+        "logradouro": "Avenida Paulista",
+        "bairro": "Bela Vista",
+        "localidade": "São Paulo",
+        "uf": "SP"
+      },
+      "error": null,
+      "processed_at": "2024-01-15T10:30:05.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 101,
+    "total_pages": 6
+  }
+}
+```
 
-* [ ] uma rota `GET /cep/crawl/:crawl_id/results`
-* [ ] retornar os resultados já processados
-* [ ] paginação simples é desejável
+## Exemplo de Teste Completo
 
----
+```bash
+# 1. Verificar se a API está rodando
+curl http://localhost:3000/health
 
-## Processamento assíncrono
+# 2. Criar um crawl com 100 CEPs
+curl -X POST http://localhost:3000/cep/crawl \
+  -H "Content-Type: application/json" \
+  -d '{"cep_start": "01310100", "cep_end": "01310199"}'
 
-* [ ] o processamento dos CEPs deve ocorrer fora do ciclo da requisição HTTP
-* [ ] cada CEP deve ser consumido individualmente a partir de uma fila
-* [ ] para cada CEP:
+# Resposta: {"message":"Crawl request accepted","crawl_id":"abc123..."}
 
-  * [ ] consultar a API do ViaCEP
-  * [ ] em caso de sucesso, persistir o endereço no MongoDB
-  * [ ] em caso de CEP inexistente, registrar o erro associado ao `crawl_id`
-  * [ ] em caso de falha temporária, permitir retry
+# 3. Acompanhar o status
+curl http://localhost:3000/cep/crawl/abc123...
 
----
+# 4. Ver os resultados quando finalizado
+curl "http://localhost:3000/cep/crawl/abc123.../results?page=1&limit=50"
+```
 
-## Fila assíncrona
+## Configurações
 
-* [ ] sugerimos o uso do **ElasticMQ** em Docker
-  ([https://github.com/softwaremill/elasticmq](https://github.com/softwaremill/elasticmq)), por ser compatível com a API do Amazon SQS
-* [ ] o candidato pode utilizar outra solução de fila, desde que justifique a escolha
-* [ ] o sistema deve garantir que o consumo da fila **não exceda limites da API externa**
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `PORT` | 3000 | Porta da API |
+| `MONGODB_URI` | mongodb://localhost:27017/cep-crawler | URI do MongoDB |
+| `SQS_ENDPOINT` | http://localhost:9324 | Endpoint do ElasticMQ |
+| `MAX_CEP_RANGE` | 1000 | Máximo de CEPs por request |
+| `RATE_LIMIT_MS` | 50 | Intervalo entre requests (20 req/s) |
+| `MAX_RETRIES` | 3 | Tentativas em caso de falha |
 
-```plain
-A API do ViaCEP pode aplicar limitação de requisições.
-O sistema deve ser capaz de controlar a taxa de processamento da fila,
-mesmo quando o usuário solicita ranges grandes de CEPs.
+> **Nota:** Os parâmetros `RATE_LIMIT_MS`, `MAX_CEP_RANGE` e `MAX_RETRIES` podem ser ajustados conforme necessário. No entanto, **recomenda-se manter os valores padrão** para evitar bloqueios temporários pela API do ViaCEP (rate limiting), timeouts de conexão ou sobrecarga do sistema. Valores muito agressivos podem resultar em falhas de rede e necessidade de múltiplos retries.
 
-O não controle da fila pode resultar em falhas, retries excessivos ou bloqueio
-da API externa.
+## Controle de Taxa (Rate Limiting)
+
+O worker implementa rate limiting para respeitar os limites da API do ViaCEP:
+
+- **Intervalo configurável** entre requisições (padrão: 50ms = 20 req/s)
+- **Retry com exponential backoff** para falhas temporárias
+- **Máximo de 3 tentativas** por CEP
+
+## Modelos de Dados
+
+### Collection: crawls
+
+```javascript
+{
+  crawlId: "uuid",
+  cepStart: "01310100",
+  cepEnd: "01310200",
+  totalCeps: 101,
+  processed: 50,
+  successes: 48,
+  errorCount: 2,
+  status: "running", // pending | running | finished | failed
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+### Collection: results
+
+```javascript
+{
+  crawlId: "uuid",
+  cep: "01310100",
+  success: true,
+  found: true,
+  data: { /* dados do ViaCEP */ },
+  error: null,
+  attempts: 1,
+  processedAt: Date
+}
+```
+
+## Scripts Disponíveis
+
+```bash
+npm run build        # Compila TypeScript
+npm run dev:api      # API em modo desenvolvimento
+npm run dev:worker   # Worker em modo desenvolvimento
+npm run start:api    # API em produção
+npm run start:worker # Worker em produção
 ```
 
 ---
 
-## Persistência
+## Requisitos do Desafio
 
-* [ ] utilizar **MongoDB** para persistência dos dados
-* [ ] os dados devem estar associados à requisição que originou o processamento
-* [ ] o modelo de dados é livre, mas deve permitir:
+Este projeto implementa todos os requisitos do teste técnico:
 
-  * [ ] acompanhar progresso
-  * [ ] identificar erros
-  * [ ] consultar resultados por `crawl_id`
-
----
-
-## Infraestrutura
-
-Para infra, vamos usar o seguinte conjunto:
-
-* [ ] um arquivo `Dockerfile` para a aplicação
-* [ ] um arquivo `docker-compose.yml` contendo, no mínimo:
-
-  * [ ] aplicação HTTP
-  * [ ] worker de processamento assíncrono
-  * [ ] MongoDB
-  * [ ] serviço de fila (ElasticMQ ou equivalente)
-
----
-
-## Restrições
-
-A única limitação obrigatória é o uso da runtime **Node.js**.
-
-Você tem total liberdade para escolher bibliotecas auxiliares, ORMs, drivers de fila
-e organização do projeto.
-
-Acaso você esteja utilizando este projeto como meio de estudo, recomendamos o uso
-da biblioteca padrão `http` do Node.js para lidar com requisições web.
-
----
-
-## O que estamos avaliando
-
-Este teste busca avaliar as seguintes competências:
-
-1. Integração com APIs externas;
-2. Uso correto de filas assíncronas;
-3. Controle de concorrência e taxa de processamento;
-4. Modelagem e uso de banco de dados MongoDB;
-5. Domínio sobre a linguagem JavaScript;
-6. Domínio sobre a runtime `node.js`;
-7. Capacidade de organização de código e separação de responsabilidades;
-8. Capacidade de lidar com contêineres Docker e ambientes compostos.
+- [x] API REST com Express
+- [x] Processamento assíncrono via fila (ElasticMQ/SQS)
+- [x] Integração com API do ViaCEP
+- [x] Persistência em MongoDB
+- [x] Controle de taxa de processamento
+- [x] Retry com exponential backoff
+- [x] Docker e Docker Compose
+- [x] Validação de entrada com Zod
+- [x] Paginação de resultados

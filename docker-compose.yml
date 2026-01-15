@@ -44,8 +44,8 @@ services:
       - SQS_ACCESS_KEY_ID=x
       - SQS_SECRET_ACCESS_KEY=x
       - SQS_QUEUE_URL=http://elasticmq:9324/000000000000/cep-queue
-      - MAX_CEP_RANGE=500
-      - RATE_LIMIT_MS=200
+      - MAX_CEP_RANGE=1000
+      - RATE_LIMIT_MS=50
       - MAX_RETRIES=3
     depends_on:
       mongodb:
@@ -68,8 +68,8 @@ services:
       - SQS_ACCESS_KEY_ID=x
       - SQS_SECRET_ACCESS_KEY=x
       - SQS_QUEUE_URL=http://elasticmq:9324/000000000000/cep-queue
-      - MAX_CEP_RANGE=500
-      - RATE_LIMIT_MS=200
+      - MAX_CEP_RANGE=1000
+      - RATE_LIMIT_MS=50
       - MAX_RETRIES=3
     depends_on:
       mongodb:

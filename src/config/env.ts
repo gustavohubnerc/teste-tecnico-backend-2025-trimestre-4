@@ -18,7 +18,7 @@ export const env = {
   SQS_QUEUE_URL: process.env.SQS_QUEUE_URL || 'http://localhost:9324/000000000000/cep-queue',
 
   // Crawler Config
-  MAX_CEP_RANGE: parseInt(process.env.MAX_CEP_RANGE || '500', 10),
-  RATE_LIMIT_MS: parseInt(process.env.RATE_LIMIT_MS || '200', 10),
+  MAX_CEP_RANGE: parseInt(process.env.MAX_CEP_RANGE || '1000', 10),
+  RATE_LIMIT_MS: parseInt(process.env.RATE_LIMIT_MS || '50', 10),
   MAX_RETRIES: parseInt(process.env.MAX_RETRIES || '3', 10),
 } as const;
